@@ -1,14 +1,10 @@
+import 'dart:convert';
+import 'dart:html' as html;
+import 'dart:nativewrappers/_internal/vm/lib/typed_data_patch.dart';
 import 'package:flutter/material.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
-import 'package:camera/camera.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-
-List<CameraDescription> cameras = [];
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  cameras = await availableCameras();
+import 'package:image_picker/image_picker.dart';
+//This is the main page for the whole aplication
+void main() {
   runApp(const DeliveryApp());
 }
 
@@ -35,46 +31,51 @@ class DeliveryHomePage extends StatefulWidget {
 }
 
 class _DeliveryHomePageState extends State<DeliveryHomePage> {
-  late CameraController _cameraController;
-  late Future<void> _initializeControllerFuture;
   final List<Map<String, String>> _deliveries = [];
+  final ImagePicker _picker = ImagePicker();
+  String? _imageUrl;
+  bool _isProcessing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _cameraController = CameraController(cameras.first, ResolutionPreset.medium);
-    _initializeControllerFuture = _cameraController.initialize();
-  }
-
-  @override
-  void dispose() {
-    _cameraController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _captureAndProcessImage() async {
+  Future<void> _pickImageAndProcess() async {
     try {
-      await _initializeControllerFuture;
-      final image = await _cameraController.takePicture();
+      setState(() {
+        _isProcessing = true;
+      });
+      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      if (pickedFile != null) {
+        final imageBytes = await pickedFile.readAsBytes();
+        setState(() {
+          _imageUrl = pickedFile.path;
+        });
 
-      final recognizedText = await _processImageWithMLKit(File(image.path));
+        // Simulate OCR process for demo purposes
+        await _processImage(imageBytes as Uint8List);
+      }
+    } catch (e) {
+      _showErrorDialog('Error picking image: $e');
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  Future<void> _processImage(Uint8List imageBytes) async {
+    try {
+      // Simulate OCR by parsing dummy text
+      const recognizedText = '''
+      John Doe Address: 123 Main St
+      Jane Smith Address: 456 Elm St
+      ''';
+
       final parsedData = _parseDeliveryData(recognizedText);
 
       setState(() {
         _deliveries.addAll(parsedData);
       });
     } catch (e) {
-      print('Error capturing or processing image: $e');
+      _showErrorDialog('Error recognizing text: $e');
     }
-  }
-
-  Future<String> _processImageWithMLKit(File imageFile) async {
-    final inputImage = InputImage.fromFile(imageFile);
-    final textRecognizer = GoogleMlKit.vision.textRecognizer();
-    final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-
-    textRecognizer.close();
-    return recognizedText.text;
   }
 
   List<Map<String, String>> _parseDeliveryData(String text) {
@@ -99,8 +100,24 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
   void _toggleStatus(int index) {
     setState(() {
       _deliveries[index]['status'] =
-          _deliveries[index]['status'] == 'Not Delivered' ? 'Delivered' : 'Not Delivered';
+      _deliveries[index]['status'] == 'Not Delivered' ? 'Delivered' : 'Not Delivered';
     });
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -109,12 +126,24 @@ class _DeliveryHomePageState extends State<DeliveryHomePage> {
       appBar: AppBar(
         title: const Text('BNH Meals on Wheels Delivery App'),
       ),
-      body: Column(
+      body: _isProcessing
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
-          ElevatedButton(
-            onPressed: _captureAndProcessImage,
-            child: const Text('Capture Delivery Image'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton(
+                onPressed: _pickImageAndProcess,
+                child: const Text('Pick Image'),
+              ),
+            ],
           ),
+          if (_imageUrl != null)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Image.network(_imageUrl!),
+            ),
           Expanded(
             child: ListView.builder(
               itemCount: _deliveries.length,
